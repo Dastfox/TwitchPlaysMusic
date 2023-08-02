@@ -1,2 +1,5 @@
 .env
 .venv/
+chat.log
+__pycache__/
+.vscode/

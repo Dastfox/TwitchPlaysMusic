@@ -16,7 +16,6 @@ def send_midi_notes(
     velocity: int,
     note_length: float,
     chords_allowed=True,
-    notes_allowed: list = None,
     midi_port=None,
 ):
     """
@@ -45,9 +44,9 @@ def send_midi_notes(
     final_notes = []
 
     for note in note_list:
-        if not (note is None or note > 127 or note < 12 or type(note) != int):
-            if notes_allowed and note in notes_allowed:
-                final_notes.append(note)
+        if note is None or note > 127 or note < 12 or type(note) != int:
+            # remove the note
+            note_list.remove(note)
     print(
         "note_list",
         note_list,
@@ -55,7 +54,6 @@ def send_midi_notes(
         note_length,
         chords_allowed,
         midi_port,
-        notes_allowed,
         final_notes,
     )
     with mido.open_output(midi_port) as port:

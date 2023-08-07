@@ -11,6 +11,10 @@ from midi_controller import send_midi_notes
 import mido
 import dotenv
 
+##########################
+# UTILS FUNCTIONS ########
+##########################
+
 
 def write_to_env(key, value):
     with open(".env", "r+") as file:
@@ -36,6 +40,9 @@ def fetch_env_vars():
     return server, port, token, channel, nickname
 
 
+##########################
+# CHAT CLIENT CLASS ######
+##########################
 class ChatClient:
     def __init__(self, master, server, port, nickname, token, channel):
         self.current_notes = []  # Notes that are currently being played
@@ -82,6 +89,8 @@ class ChatClient:
 
         self.note_list = self.full_note_list
         self.base_note.set(self.note_list[0])
+
+        self.chords_allowed.set(True)
 
         master.title("Twitch Plays Music")
 
@@ -184,7 +193,7 @@ class ChatClient:
             if note.isdigit() and int(note) in self.notes_and_ports.values():
                 return int(note)
             note: str = note.upper()
-            if len(note) == 1:
+            if len(note) == 1 or note[1] == "#":
                 note = f"{note}5"
             return self.notes_and_ports.get(str(note), None)
 
@@ -231,49 +240,55 @@ class ChatClient:
 
                 self.parse_and_play_midi(message)
 
+    def parse_message_parts(self, message_parts):
+        note_or_ports = message_parts[0]
+        note_or_port_list = note_or_ports.split(",")
+        velocity = int(message_parts[1]) if len(message_parts) > 1 else None
+        length = float(message_parts[2]) if len(message_parts) > 2 else None
+
+        return note_or_port_list, velocity, length
+
+    def filter_ports(self, note_or_port_list):
+        ports = [
+            self.get_port_for_note_or_none(note_or_port)
+            for note_or_port in note_or_port_list
+        ]
+        print("Ports:", ports)
+        return [port for port in ports if port in self.ports_allowed]
+
+    def send_midi_with_timeout(self, ports, velocity, length):
+        def send_midi_wrapper():
+            print("Sending MIDI...", ports)
+            send_midi_notes(
+                ports,
+                velocity,
+                length,
+                self.chords_allowed.get(),
+                self.midi_port.get(),
+            )
+
+        event = threading.Event()
+        t = threading.Thread(target=lambda: (send_midi_wrapper(), event.set()))
+        t.start()
+
+        if not event.wait(timeout=5):
+            print("Warning: MIDI sending timed out!")
+
     def parse_and_play_midi(self, message: str):
         try:
-            # Split the message into multiple parts based on commas
             message_list = message.split(" ")
 
             for message in message_list:
                 message_parts = message.split(":")
-                message_parts_count = len(message_parts)
+                note_or_port_list, velocity, length = self.parse_message_parts(
+                    message_parts
+                )
+                ports = self.filter_ports(note_or_port_list)
 
-                note_or_ports = message_parts[0]
-                note_or_port_list = note_or_ports.split(",")
-
-                velocity = int(message_parts[1]) if message_parts_count > 1 else None
-                length = float(message_parts[2]) if message_parts_count > 2 else None
-
-                ports = [
-                    self.get_port_for_note_or_none(note_or_port)
-                    for note_or_port in note_or_port_list
-                ]
-
-                if ports == [None]:
+                if ports == [None] or not ports:
                     continue
-
-                # Function to send MIDI notes wrapped for threading
-                def send_midi_wrapper():
-                    send_midi_notes(
-                        ports,
-                        velocity,
-                        length,
-                        self.chords_allowed.get(),
-                        self.note_list,
-                        self.midi_port.get(),
-                    )
-
-                event = threading.Event()
-
-                # Thread to send MIDI notes
-                t = threading.Thread(target=lambda: (send_midi_wrapper(), event.set()))
-                t.start()
-
-                # Check if MIDI sending completes before timeout (e.g., 5 seconds)
-                if not event.wait(timeout=5):
-                    print("Warning: MIDI sending timed out!")
+                print(f"Playing {ports} with velocity {velocity} and length {length}")
+                self.send_midi_with_timeout(ports, velocity, length)
 
         except ValueError as e:
             print(f"Error parsing MIDI message: {e}")
@@ -311,7 +326,6 @@ class ChatClient:
                         if note == key[0] and "#" not in key
                     ]
             self.ports_allowed = sorted(matching_ports)
-            print(self.ports_allowed)
 
         else:
             self.note_list = self.full_note_list
@@ -334,6 +348,8 @@ class ChatClient:
 
     def is_message_valid(self, message: str) -> bool:
         pattern = r"^([A-Ga-g0-9#]+(,[A-Ga-g0-9#]+)*(:[0-9]+(:[0-9]+(\.[0-9]+)?)?)?( [A-Ga-g0-9#]+(,[A-Ga-g0-9#]+)*(:[0-9]+(:[0-9]+(\.[0-9]+)?)?)?)*$)"
+        if not re.match(pattern, message):
+            print("Invalid message format")
         return bool(re.match(pattern, message))
 
     def open_settings_modal(self):
@@ -390,6 +406,9 @@ class ChatClient:
         self.master.wait_window(modal.top)
 
 
+##########################
+# Config Modal           #
+##########################
 class ConfigModal:
     def __init__(self, parent, chat_client):
         self.top = tk.Toplevel(parent)

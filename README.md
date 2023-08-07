@@ -6,11 +6,12 @@
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
+- [License](#license)
 - [Dependencies](#dependencies)
 
 ## Introduction
 
-The Music Chat Client with MIDI Integration is a unique chat application that allows users to join a Twitch channel, participate in live chat, and trigger MIDI notes through chat messages. The application leverages the Twitch IRC (Internet Relay Chat) to enable real-time interactions with viewers. When users send specific chat messages containing MIDI note information, the application converts them into MIDI signals and plays corresponding musical notes through the connected MIDI device. This project is perfect for music streamers and enthusiasts who want to engage with their audience in a creative and interactive way.
+Participate in live chat, and trigger MIDI notes through chat messages. The application leverages the Twitch IRC (Internet Relay Chat) to enable real-time interactions with viewers. When users send specific chat messages containing MIDI note information, the application converts them into MIDI signals and plays corresponding musical notes through the connected MIDI device.
 
 ## Installation
 
@@ -38,6 +39,10 @@ run the main.py file
 ```bash
 python main.py
 ```
+
+## License
+
+[GPL-3.0](https://choosealicense.com/licenses/gpl-3.0/)
 
 ## Dependencies
 

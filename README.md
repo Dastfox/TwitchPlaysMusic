@@ -3,6 +3,7 @@
 ## Table of Contents
 
 - [Introduction](#introduction)
+- [Contributing](#contributing)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
@@ -12,6 +13,10 @@
 ## Introduction
 
 Participate in live chat, and trigger MIDI notes through chat messages. The application leverages the Twitch IRC (Internet Relay Chat) to enable real-time interactions with viewers. When users send specific chat messages containing MIDI note information, the application converts them into MIDI signals and plays corresponding musical notes through the connected MIDI device.
+
+## Contributing
+
+Take a look at [CONTRIBUTING](CONTRIBUTING)
 
 ## Installation
 

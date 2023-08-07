@@ -1,0 +1,17 @@
+# Contributing
+
+## Pull Request Guidelines
+
+- **Create a Specific Branch**: When working on a feature or bug fix, create a branch specific to that task. This helps keep changes organized.
+
+- **Follow Code Conventions**: Ensure your code adheres to the existing coding conventions and styles used in the project. Consistency helps maintain code quality.
+
+- **Document Your Changes**: Provide clear explanations of what has been done in the code comments or additional documentation. This helps reviewers understand your work.
+
+- **Provide Descriptive Commit Messages**: Commit your changes with clear and descriptive messages that help convey what was done and why.
+
+- **Create a Pull Request with Details**: When submitting a pull request, provide details about the changes, why they were made, and how they can be tested. This information helps the review process.
+
+- **Respond to Comments**: Be responsive to comments on your pull request. Engaging with feedback helps ensure everything is aligned before merging.
+
+- **Adhere to the License**: Ensure your contribution is in compliance with the GPL-3.0 license under which the project is distributed.

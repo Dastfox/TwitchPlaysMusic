@@ -5,23 +5,29 @@ import dotenv
 
 dotenv.load_dotenv()
 
+# Default MIDI values
 NOTE = 60
 VELOCITY = 64
 NOTE_LENGTH = 1
 
 
-def choose_midi_port():
-    # display all available ports
-    for i, port in enumerate(mido.get_output_names()):
-        print(f"{i}: {port}")
-    # choose the port from the list
-    port_number = int(input("Choose a port number: "))
-    #  add the port to the environment variables
-    dotenv.set_key(".env", "MIDI_PORT", mido.get_output_names()[port_number])
+def send_midi_notes(
+    note_list: list,
+    velocity: int,
+    note_length: float,
+    chords_allowed=True,
+    notes_allowed: list = None,
+    midi_port=None,
+):
+    """
+    Send a MIDI note or chord to the specified MIDI port.
+    :note_list: A list of MIDI notes to play.
+    :param velocity: The velocity of the note(s) to play.
+    :param note_length: The length of the note(s) to play.
+    :param chords_allowed: Whether or not to play chords.
+    :param midi_port: The MIDI port to play the note(s) on.
 
-
-def send_midi_notes(note_list, velocity, note_length, chords_allowed=True):
-    print("send_midi_notes", note_list, velocity, note_length, chords_allowed)
+    """
 
     if type(note_list) == int:
         note_list = [note_list]
@@ -36,11 +42,23 @@ def send_midi_notes(note_list, velocity, note_length, chords_allowed=True):
         except ValueError:
             note_length = NOTE_LENGTH
 
-    for note in note_list:
-        if note is None or note > 127 or note < 12 or type(note) != int:
-            note = NOTE
+    final_notes = []
 
-    with mido.open_output(os.getenv("MIDI_PORT")) as port:
+    for note in note_list:
+        if not (note is None or note > 127 or note < 12 or type(note) != int):
+            if notes_allowed and note in notes_allowed:
+                final_notes.append(note)
+    print(
+        "note_list",
+        note_list,
+        velocity,
+        note_length,
+        chords_allowed,
+        midi_port,
+        notes_allowed,
+        final_notes,
+    )
+    with mido.open_output(midi_port) as port:
         # Start all notes
         for note in note_list if chords_allowed else [note_list[0]]:
             note_on = mido.Message("note_on", note=note, velocity=velocity)
@@ -51,9 +69,3 @@ def send_midi_notes(note_list, velocity, note_length, chords_allowed=True):
         for note in note_list:
             note_off = mido.Message("note_off", note=note, velocity=velocity)
             port.send(note_off)
-
-
-if os.getenv("MIDI_PORT") is None:
-    choose_midi_port()
-notes_to_play = [60, 65, 72]
-send_midi_notes(notes_to_play, velocity=64, note_length=0.5)

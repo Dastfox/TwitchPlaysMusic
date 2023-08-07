@@ -8,12 +8,32 @@ from emoji import demojize
 import sys
 import json
 from midi_controller import send_midi_notes
+import mido
+import dotenv
+
+
+def write_to_env(key, value):
+    with open(".env", "r+") as file:
+        # Write the key-value pair to the .env file
+        dotenv.set_key(file, key, value)
 
 
 def read_json(file_path):
     with open(file_path, "r") as file:
         dict = file.read()
         return json.loads(dict)
+
+
+def fetch_env_vars():
+    # Load the environment variables from .env file
+    dotenv.load_dotenv()
+    server = os.getenv("SERVER", "irc.chat.twitch.tv")
+    port = int(os.getenv("PORT", 6667))
+    token = os.getenv("TOKEN", "oauth:8avli6uj6lllpblk0akdomwahbts45")
+    channel = os.getenv("CHANNEL", "#dastou")
+    nickname = os.getenv("NICKNAME", "dastou")
+
+    return server, port, token, channel, nickname
 
 
 class ChatClient:
@@ -30,11 +50,18 @@ class ChatClient:
         self.running = True
         self.notes_and_ports = read_json("./Music_informations/notes_and_ports.json")
         self.scales: dict = read_json("./Music_informations/scales_intervals.json")
-        # GUI
+
+        # GUI variables
+        self.midi_port = tk.StringVar()
         self.max_beats = tk.IntVar()
         self.chords_allowed = tk.BooleanVar()
         self.scale = tk.StringVar()
         self.base_note = tk.StringVar()
+        self.midi_ports_list = mido.get_output_names()
+        if self.midi_ports_list:
+            self.midi_port.set(self.midi_ports_list[0])
+        else:
+            self.midi_port.set("No MIDI Ports Available")
 
         self.scales_list = list(self.scales.keys())
         self.full_note_list = [
@@ -51,52 +78,81 @@ class ChatClient:
             "A#",
             "B",
         ]
+        self.ports_allowed = list(self.notes_and_ports.values())
 
         self.note_list = self.full_note_list
         self.base_note.set(self.note_list[0])
 
-        master.title("Twitch plays music")
+        master.title("Twitch Plays Music")
 
-        # Configure the grid
-        master.columnconfigure(0, minsize=50, weight=1)
-        master.rowconfigure(0, minsize=50, weight=1)
+        # Create frames to organize the layout
+        chat_frame = tk.Frame(master)
+        chat_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
-        self.text_area = tk.Text(master)
-        self.text_area.grid(row=0, column=0, sticky="nsew")
+        controls_frame = tk.Frame(master)
+        controls_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
-        self.max_beats_label = tk.Label(master, text="Max number of beats")
-        self.max_beats_label.grid(row=1, column=0, sticky="w")
+        # Text Area
+        self.text_area = tk.Text(chat_frame, wrap=tk.WORD)
+        self.text_area.pack(expand=True, fill=tk.BOTH)
 
-        self.max_beats_entry = tk.Entry(master, textvariable=self.max_beats)
-        self.max_beats_entry.grid(row=2, column=0, sticky="w")
+        # Label and Entry for Max Beats
+        max_beats_frame = tk.Frame(controls_frame)
+        max_beats_frame.pack(pady=5)
+        self.max_beats_label = tk.Label(max_beats_frame, text="Max number of beats:")
+        self.max_beats_label.pack(side=tk.LEFT)
+        self.max_beats_entry = tk.Entry(max_beats_frame, textvariable=self.max_beats)
+        self.max_beats_entry.pack(side=tk.LEFT)
 
+        # Checkbox for Chords Allowed
         self.chords_allowed_check = tk.Checkbutton(
-            master, text="Allow chords", variable=self.chords_allowed
+            controls_frame, text="Allow chords", variable=self.chords_allowed
         )
-        self.chords_allowed_check.grid(row=3, column=0, sticky="w")
+        self.chords_allowed_check.pack(pady=5)
 
-        self.max_beats_label = tk.Label(master, text="Scale")
-        self.max_beats_label.grid(row=4, column=0, sticky="w")
+        # Scale selection
+        scale_frame = tk.Frame(controls_frame)
+        scale_frame.pack(pady=5)
+        scale_label = tk.Label(scale_frame, text="Scale:")
+        scale_label.pack(side=tk.LEFT)
+        self.scale_menu = tk.OptionMenu(scale_frame, self.scale, *self.scales_list)
+        self.scale_menu.pack(side=tk.LEFT)
 
-        self.scale_menu = tk.OptionMenu(master, self.scale, *self.scales_list)
-        self.scale_menu.grid(row=5, column=0, sticky="w")
-
-        self.max_beats_label = tk.Label(master, text="Base note")
-        self.max_beats_label.grid(row=6, column=0, sticky="w")
-
+        # Base note selection
+        base_note_frame = tk.Frame(controls_frame)
+        base_note_frame.pack(pady=5)
+        base_note_label = tk.Label(base_note_frame, text="Base note:")
+        base_note_label.pack(side=tk.LEFT)
         self.base_note_menu = tk.OptionMenu(
-            master, self.base_note, *self.full_note_list
+            base_note_frame, self.base_note, *self.full_note_list
         )
-        self.base_note_menu.grid(row=7, column=0, sticky="w")
+        self.base_note_menu.pack(side=tk.LEFT)
+
+        # Note list
+        self.note_listbox_label = tk.Label(controls_frame, text="Available Notes:")
+        self.note_listbox_label.pack()
+        self.note_listbox = tk.Listbox(controls_frame)
+        self.note_listbox.pack(expand=True, fill=tk.BOTH)
+        for note in self.note_list:
+            self.note_listbox.insert(tk.END, note)
+
+        # MIDI port selection
+        midi_port_frame = tk.Frame(controls_frame)
+        midi_port_frame.pack(pady=5)
+        self.midi_port_label = tk.Label(midi_port_frame, text="MIDI Port:")
+        self.midi_port_label.pack(side=tk.LEFT)
+        self.midi_port_menu = tk.OptionMenu(
+            midi_port_frame, self.midi_port, *self.midi_ports_list
+        )
+        self.midi_port_menu.pack(side=tk.LEFT)
+
+        config_button = tk.Button(
+            controls_frame, text="Config", command=self.show_config_modal
+        )
+        config_button.pack(pady=5)
 
         self.scale.trace("w", self.option_changed)
         self.base_note.trace("w", self.option_changed)
-
-        # New Listbox for displaying note list
-        self.note_listbox = tk.Listbox(master)
-        self.note_listbox.grid(row=8, column=0, sticky="w")
-        for note in self.note_list:
-            self.note_listbox.insert(tk.END, note)
 
         try:
             self.init_socket()
@@ -106,10 +162,6 @@ class ChatClient:
             self.text_area.insert(tk.END, f"Failed to connect to the server: {str(e)}")
 
         master.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-        def __init__(self):
-            self.current_notes = []  # Notes that are currently being played
-            self.waiting_notes = []  # Notes that are waiting to be played
 
         def note_started(self, note):
             self.waiting_notes.remove(note)
@@ -202,9 +254,26 @@ class ChatClient:
                 if ports == [None]:
                     continue
 
-                send_midi_notes(
-                    ports, velocity, length, self.chords_allowed_check.get()
-                )
+                # Function to send MIDI notes wrapped for threading
+                def send_midi_wrapper():
+                    send_midi_notes(
+                        ports,
+                        velocity,
+                        length,
+                        self.chords_allowed.get(),
+                        self.note_list,
+                        self.midi_port.get(),
+                    )
+
+                event = threading.Event()
+
+                # Thread to send MIDI notes
+                t = threading.Thread(target=lambda: (send_midi_wrapper(), event.set()))
+                t.start()
+
+                # Check if MIDI sending completes before timeout (e.g., 5 seconds)
+                if not event.wait(timeout=5):
+                    print("Warning: MIDI sending timed out!")
 
         except ValueError as e:
             print(f"Error parsing MIDI message: {e}")
@@ -226,8 +295,27 @@ class ChatClient:
             self.note_listbox.delete(0, tk.END)
             for note in self.note_list:
                 self.note_listbox.insert(tk.END, note)
+
+            matching_ports = []
+            for note in self.note_list:
+                if "#" in note:
+                    matching_ports += [
+                        self.notes_and_ports[key]
+                        for key in self.notes_and_ports.keys()
+                        if note in key[:2]
+                    ]
+                else:
+                    matching_ports += [
+                        self.notes_and_ports[key]
+                        for key in self.notes_and_ports.keys()
+                        if note == key[0] and "#" not in key
+                    ]
+            self.ports_allowed = sorted(matching_ports)
+            print(self.ports_allowed)
+
         else:
             self.note_list = self.full_note_list
+            self.ports_allowed = self.notes_and_ports.values()
 
     def get_notes_in_scale(self, scale, base_note):
         base_index = self.full_note_list.index(base_note)
@@ -246,5 +334,94 @@ class ChatClient:
 
     def is_message_valid(self, message: str) -> bool:
         pattern = r"^([A-Ga-g0-9#]+(,[A-Ga-g0-9#]+)*(:[0-9]+(:[0-9]+(\.[0-9]+)?)?)?( [A-Ga-g0-9#]+(,[A-Ga-g0-9#]+)*(:[0-9]+(:[0-9]+(\.[0-9]+)?)?)?)*$)"
-
         return bool(re.match(pattern, message))
+
+    def open_settings_modal(self):
+        self.settings_window = tk.Toplevel(self.master)
+        self.settings_window.title("Settings")
+
+        server_label = tk.Label(self.settings_window, text="Server:")
+        server_label.grid(row=0, column=0)
+        self.server_entry = tk.Entry(self.settings_window)
+        self.server_entry.insert(0, self.server)
+        self.server_entry.grid(row=0, column=1)
+
+        port_label = tk.Label(self.settings_window, text="Port:")
+        port_label.grid(row=1, column=0)
+        self.port_entry = tk.Entry(self.settings_window)
+        self.port_entry.insert(0, self.port)
+        self.port_entry.grid(row=1, column=1)
+
+        token_label = tk.Label(self.settings_window, text="Token:")
+        token_label.grid(row=2, column=0)
+        self.token_entry = tk.Entry(self.settings_window)
+        self.token_entry.insert(0, self.token)
+        self.token_entry.grid(row=2, column=1)
+
+        channel_label = tk.Label(self.settings_window, text="Channel:")
+        channel_label.grid(row=3, column=0)
+        self.channel_entry = tk.Entry(self.settings_window)
+        self.channel_entry.insert(0, self.channel)
+        self.channel_entry.grid(row=3, column=1)
+
+        nickname_label = tk.Label(self.settings_window, text="Nickname:")
+        nickname_label.grid(row=4, column=0)
+        self.nickname_entry = tk.Entry(self.settings_window)
+        self.nickname_entry.insert(0, self.nickname)
+        self.nickname_entry.grid(row=4, column=1)
+
+        save_button = tk.Button(
+            self.settings_window, text="Save", command=self.save_settings
+        )
+        save_button.grid(row=6, column=0, columnspan=2)
+
+    def save_settings(self):
+        self.server = self.server_entry.get()
+        write_to_env("SERVER", self.server)
+        write_to_env("PORT", self.port)
+        write_to_env("TOKEN", self.token)
+        write_to_env("CHANNEL", self.channel)
+        write_to_env("NICKNAME", self.nickname)
+
+        self.settings_window.destroy()
+
+    def show_config_modal(self):
+        modal = ConfigModal(self.master, self)
+        self.master.wait_window(modal.top)
+
+
+class ConfigModal:
+    def __init__(self, parent, chat_client):
+        self.top = tk.Toplevel(parent)
+        self.chat_client = chat_client
+
+        self.server = tk.StringVar(value=os.getenv("server"))
+        self.port = tk.StringVar(value=os.getenv("port"))
+        self.nickname = tk.StringVar(value=os.getenv("nickname"))
+        self.token = tk.StringVar(value=os.getenv("token"))
+        self.channel = tk.StringVar(value=os.getenv("channel"))
+
+        tk.Label(self.top, text="Server:").pack()
+        tk.Entry(self.top, textvariable=self.server).pack()
+
+        tk.Label(self.top, text="Port:").pack()
+        tk.Entry(self.top, textvariable=self.port).pack()
+
+        tk.Label(self.top, text="Nickname:").pack()
+        tk.Entry(self.top, textvariable=self.nickname).pack()
+
+        tk.Label(self.top, text="Token:").pack()
+        tk.Entry(self.top, textvariable=self.token).pack()
+
+        tk.Label(self.top, text="Channel:").pack()
+        tk.Entry(self.top, textvariable=self.channel).pack()
+
+        tk.Button(self.top, text="OK", command=self.validate).pack()
+
+    def validate(self):
+        dotenv.set_key(".env", "server", self.server.get())
+        dotenv.set_key(".env", "port", self.port.get())
+        dotenv.set_key(".env", "nickname", self.nickname.get())
+        dotenv.set_key(".env", "token", self.token.get())
+        dotenv.set_key(".env", "channel", self.channel.get())
+        self.top.destroy()

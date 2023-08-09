@@ -20,22 +20,14 @@ Take a look at [CONTRIBUTING](CONTRIBUTING)
 
 ## Installation
 
+Right now please use a software to create a virtual midi port. I use [LoopBe1](https://www.nerds.de/en/download.html) on Windows.
+
 1. Clone this repository to your local machine.
 2. Install the required dependencies by running the following command:
 
    ```bash
    pip install -r requirements.txt
    ```
-
-## Configuration
-
-Create a `.env` file and add the following environment variables:
-  
-- server=your_server
-- port=your_port
-- nickname=your_nickname (the one linked to your OAuth token)
-- token=your_token (OAuth token you can get from <https://twitchapps.com/tmi/>)
-- channel=your_channel (the channel you want to join preceded by a #)
 
 ## Usage
 
@@ -44,6 +36,16 @@ run the main.py file
 ```bash
 python main.py
 ```
+
+## Configuration
+
+Click the config button to open the configuration window. You can configure the following settings:
+  
+- server=your_server
+- port=your_port
+- nickname=your_nickname (the one linked to your OAuth token)
+- token=your_token (OAuth token you can get from <https://twitchapps.com/tmi/>)
+- channel=your_channel (the channel you want to join preceded by a #)
 
 ## License
 

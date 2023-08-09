@@ -66,7 +66,7 @@ class ChatClient:
         self.base_note = tk.StringVar()
         self.midi_ports_list = mido.get_output_names()
         if self.midi_ports_list:
-            self.midi_port.set(self.midi_ports_list[0])
+            self.midi_port.set(self.midi_ports_list[-1])
         else:
             self.midi_port.set("No MIDI Ports Available")
 
@@ -92,6 +92,10 @@ class ChatClient:
 
         self.chords_allowed.set(True)
 
+        ############
+        # GUI ######
+        ############
+
         master.title("Twitch Plays Music")
 
         # Create frames to organize the layout
@@ -101,11 +105,14 @@ class ChatClient:
         controls_frame = tk.Frame(master)
         controls_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
-        # Text Area
+        queue_frame = tk.Frame(master)
+        queue_frame.grid(row=1, column=2, padx=10, pady=10, sticky="nsew")
+
+        # Text Area ; Chat frame
         self.text_area = tk.Text(chat_frame, wrap=tk.WORD)
         self.text_area.pack(expand=True, fill=tk.BOTH)
 
-        # Label and Entry for Max Beats
+        # Label and Entry for Max Beats ; Controls frame
         max_beats_frame = tk.Frame(controls_frame)
         max_beats_frame.pack(pady=5)
         self.max_beats_label = tk.Label(max_beats_frame, text="Max number of beats:")
@@ -113,13 +120,13 @@ class ChatClient:
         self.max_beats_entry = tk.Entry(max_beats_frame, textvariable=self.max_beats)
         self.max_beats_entry.pack(side=tk.LEFT)
 
-        # Checkbox for Chords Allowed
+        # Checkbox for Chords Allowed ; Controls frame
         self.chords_allowed_check = tk.Checkbutton(
             controls_frame, text="Allow chords", variable=self.chords_allowed
         )
         self.chords_allowed_check.pack(pady=5)
 
-        # Scale selection
+        # Scale selection ; Controls frame
         scale_frame = tk.Frame(controls_frame)
         scale_frame.pack(pady=5)
         scale_label = tk.Label(scale_frame, text="Scale:")
@@ -127,7 +134,7 @@ class ChatClient:
         self.scale_menu = tk.OptionMenu(scale_frame, self.scale, *self.scales_list)
         self.scale_menu.pack(side=tk.LEFT)
 
-        # Base note selection
+        # Base note selection ; Controls frame
         base_note_frame = tk.Frame(controls_frame)
         base_note_frame.pack(pady=5)
         base_note_label = tk.Label(base_note_frame, text="Base note:")
@@ -137,7 +144,7 @@ class ChatClient:
         )
         self.base_note_menu.pack(side=tk.LEFT)
 
-        # Note list
+        # Note list ; Controls frame
         self.note_listbox_label = tk.Label(controls_frame, text="Available Notes:")
         self.note_listbox_label.pack()
         self.note_listbox = tk.Listbox(controls_frame)
@@ -145,7 +152,7 @@ class ChatClient:
         for note in self.note_list:
             self.note_listbox.insert(tk.END, note)
 
-        # MIDI port selection
+        # MIDI port selection ; Controls frame
         midi_port_frame = tk.Frame(controls_frame)
         midi_port_frame.pack(pady=5)
         self.midi_port_label = tk.Label(midi_port_frame, text="MIDI Port:")
@@ -155,10 +162,17 @@ class ChatClient:
         )
         self.midi_port_menu.pack(side=tk.LEFT)
 
+        # Config button ; Controls frame
         config_button = tk.Button(
             controls_frame, text="Config", command=self.show_config_modal
         )
         config_button.pack(pady=5)
+
+        # Queue list ; current notes frameX
+
+        ##############
+        # end of GUI #
+        ##############
 
         self.scale.trace("w", self.option_changed)
         self.base_note.trace("w", self.option_changed)
@@ -172,9 +186,12 @@ class ChatClient:
 
         master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        def note_started(self, note):
-            self.waiting_notes.remove(note)
-            self.current_notes.append(note)
+    def note_received(self, note):
+        self.waiting_notes.append(note)
+
+    def note_started(self, note):
+        self.waiting_notes.remove(note)
+        self.current_notes.append(note)
 
     def note_stopped(self, note):
         self.current_notes.remove(note)

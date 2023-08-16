@@ -3,6 +3,7 @@ import os
 import re
 import socket
 import threading
+import time
 import tkinter as tk
 from emoji import demojize
 import sys
@@ -31,11 +32,11 @@ def read_json(file_path):
 def fetch_env_vars():
     # Load the environment variables from .env file
     dotenv.load_dotenv()
-    server = os.getenv("SERVER", "irc.chat.twitch.tv")
-    port = int(os.getenv("PORT", 6667))
-    token = os.getenv("TOKEN", "oauth:8avli6uj6lllpblk0akdomwahbts45")
-    channel = os.getenv("CHANNEL", "#dastou")
-    nickname = os.getenv("NICKNAME", "dastou")
+    server = os.getenv("SERVER")
+    port = int(os.getenv("PORT"))
+    token = os.getenv("TOKEN")
+    channel = os.getenv("CHANNEL")
+    nickname = os.getenv("NICKNAME")
 
     return server, port, token, channel, nickname
 
@@ -90,6 +91,8 @@ class ChatClient:
         self.note_list = self.full_note_list
         self.base_note.set(self.note_list[0])
 
+        self.max_beats.set(-1)
+
         self.chords_allowed.set(True)
 
         ############
@@ -106,7 +109,7 @@ class ChatClient:
         controls_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
         queue_frame = tk.Frame(master)
-        queue_frame.grid(row=1, column=2, padx=10, pady=10, sticky="nsew")
+        queue_frame.grid(row=0, column=2, padx=10, pady=10, sticky="nsew")
 
         # Text Area ; Chat frame
         self.text_area = tk.Text(chat_frame, wrap=tk.WORD)
@@ -168,14 +171,24 @@ class ChatClient:
         )
         config_button.pack(pady=5)
 
-        # Queue list ; current notes frameX
+        # Current notes ; queue frame
+        self.current_notes_listbox_label = tk.Label(queue_frame, text="Current Notes:")
+        self.current_notes_listbox_label.pack()
+        self.current_notes_listbox = tk.Listbox(queue_frame, height=1)
+        self.current_notes_listbox.pack(expand=True, fill=tk.BOTH)
+
+        # Waiting notes ; queue frame
+        self.waiting_notes_listbox_label = tk.Label(queue_frame, text="Waiting Notes:")
+        self.waiting_notes_listbox_label.pack()
+        self.waiting_notes_listbox = tk.Listbox(queue_frame)
+        self.waiting_notes_listbox.pack(expand=True, fill=tk.BOTH)
 
         ##############
         # end of GUI #
         ##############
 
-        self.scale.trace("w", self.option_changed)
-        self.base_note.trace("w", self.option_changed)
+        self.scale.trace("w", self.allowed_note_list_option_changed)
+        self.base_note.trace("w", self.allowed_note_list_option_changed)
 
         try:
             self.init_socket()
@@ -188,13 +201,19 @@ class ChatClient:
 
     def note_received(self, note):
         self.waiting_notes.append(note)
+        self.edit_waiting_and_current_notes_lists()
 
     def note_started(self, note):
-        self.waiting_notes.remove(note)
+        print(f"note started: {note}", f"waiting notes: {self.waiting_notes}", sep="\n")
+        if note in self.waiting_notes:
+            self.waiting_notes.remove(note)
         self.current_notes.append(note)
+        self.edit_waiting_and_current_notes_lists()
 
     def note_stopped(self, note):
-        self.current_notes.remove(note)
+        if note in self.current_notes:
+            self.current_notes.remove(note)
+        self.edit_waiting_and_current_notes_lists()
 
     def init_socket(self):
         self.sock = socket.socket()
@@ -217,6 +236,16 @@ class ChatClient:
         except ValueError:
             return None
 
+    def get_note_for_port_or_none(self, port):
+        # note is a letter with possiblly a # and is a key or notes_and_ports
+        for note, port_value in self.notes_and_ports.items():
+            if port_value == port:
+                return note
+
+    def respond_to_ping(self):
+        self.sock.send("PONG :tmi.twitch.tv\n".encode("utf-8"))
+        self.sock.send("PONG\n".encode("utf-8"))
+
     def receive_message(self):
         while self.running:
             try:
@@ -225,15 +254,12 @@ class ChatClient:
                 if resp.startswith("PING"):
                     self.respond_to_ping()
                 elif len(resp) > 0:
+                    print(resp)
                     self.handle_response(resp)
 
             except Exception as e:
                 self.text_area.insert(tk.END, f"Error: {str(e)}")
                 break
-
-    def respond_to_ping(self):
-        self.sock.send("PONG :tmi.twitch.tv\n".encode("utf-8"))
-        self.sock.send("PONG\n".encode("utf-8"))
 
     def handle_response(self, resp: str):
         # Extract the message part from the response
@@ -260,31 +286,42 @@ class ChatClient:
     def parse_message_parts(self, message_parts):
         note_or_ports = message_parts[0]
         note_or_port_list = note_or_ports.split(",")
-        velocity = int(message_parts[1]) if len(message_parts) > 1 else None
-        length = float(message_parts[2]) if len(message_parts) > 2 else None
+        length = float(message_parts[1]) if len(message_parts) > 1 else None
+        velocity = int(message_parts[2]) if len(message_parts) > 2 else None
 
         return note_or_port_list, velocity, length
 
     def filter_ports(self, note_or_port_list):
         ports = [
-            self.get_port_for_note_or_none(note_or_port)
+            self.get_port_for_note_or_none(note_or_port) if note_or_port != "X" else "X"
             for note_or_port in note_or_port_list
         ]
-        print("Ports:", ports)
-        return [port for port in ports if port in self.ports_allowed]
+        return [port for port in ports if port in self.ports_allowed or port == "X"]
 
     def send_midi_with_timeout(self, ports, velocity, length):
+        notes = []
+        for port in ports:
+            if port == "X":
+                notes.append("X")
+            else:
+                notes.append(self.get_note_for_port_or_none(port))
+
+        velocity = velocity if velocity is not None else 70
+        length = length if length is not None else 1
+
         def send_midi_wrapper():
-            print("Sending MIDI...", ports)
             send_midi_notes(
                 ports,
                 velocity,
                 length,
                 self.chords_allowed.get(),
                 self.midi_port.get(),
+                self.max_beats.get(),
             )
 
+        self.note_started(notes)
         event = threading.Event()
+
         t = threading.Thread(target=lambda: (send_midi_wrapper(), event.set()))
         t.start()
 
@@ -294,6 +331,7 @@ class ChatClient:
     def parse_and_play_midi(self, message: str):
         try:
             message_list = message.split(" ")
+            # add all notes to waiting notes
 
             for message in message_list:
                 message_parts = message.split(":")
@@ -302,10 +340,36 @@ class ChatClient:
                 )
                 ports = self.filter_ports(note_or_port_list)
 
+                notes = []
+                for port in ports:
+                    if port == "X":
+                        notes.append("X")
+                    else:
+                        notes.append(self.get_note_for_port_or_none(port))
+                self.note_received(notes)
+
+            beats = 0
+            for message in message_list:
+                message_parts = message.split(":")
+                note_or_port_list, velocity, length = self.parse_message_parts(
+                    message_parts
+                )
+                beats += length
+                if beats > self.max_beats.get() and self.max_beats.get() != -1:
+                    break
+                ports = self.filter_ports(note_or_port_list)
+
                 if ports == [None] or not ports:
                     continue
-                print(f"Playing {ports} with velocity {velocity} and length {length}")
                 self.send_midi_with_timeout(ports, velocity, length)
+                notes = []
+                print(f"ports: {ports}")
+                for port in ports:
+                    if port == "X":
+                        notes.append("X")
+                    else:
+                        notes.append(self.get_note_for_port_or_none(port))
+                self.note_stopped(notes)
 
         except ValueError as e:
             print(f"Error parsing MIDI message: {e}")
@@ -319,7 +383,21 @@ class ChatClient:
         self.master.destroy()
         sys.exit(0)
 
-    def option_changed(self, *args):
+    def edit_waiting_and_current_notes_lists(self):
+        print(
+            "edit_waiting_and_current_notes_lists",
+            self.waiting_notes,
+            self.current_notes,
+        )
+        self.waiting_notes_listbox.delete(0, tk.END)
+        self.current_notes_listbox.delete(0, tk.END)
+
+        for note in self.waiting_notes:
+            self.waiting_notes_listbox.insert(tk.END, note)
+        for note in self.current_notes:
+            self.current_notes_listbox.insert(tk.END, self.current_notes)
+
+    def allowed_note_list_option_changed(self, *args):
         if len(self.scale.get()) > 0 and len(self.base_note.get()) > 0:
             self.note_list = self.get_notes_in_scale(
                 self.scale.get(), self.base_note.get()
@@ -364,7 +442,8 @@ class ChatClient:
         return notes_in_scale
 
     def is_message_valid(self, message: str) -> bool:
-        pattern = r"^([A-Ga-g0-9#]+(,[A-Ga-g0-9#]+)*(:[0-9]+(:[0-9]+(\.[0-9]+)?)?)?( [A-Ga-g0-9#]+(,[A-Ga-g0-9#]+)*(:[0-9]+(:[0-9]+(\.[0-9]+)?)?)?)*$)"
+        pattern = r"^([A-Ga-g0-9#xX]+(,[A-Ga-g0-9#xX]+)*(:[0-9]+(\.[0-9]+)?)*(:[0-9]+)?( [A-Ga-g0-9#xX]+(,[A-Ga-g0-9#xX]+)*(:[0-9]+(\.[0-9]+)?)*(:[0-9]+)?)*)$"
+
         if not re.match(pattern, message):
             print("Invalid message format")
         return bool(re.match(pattern, message))

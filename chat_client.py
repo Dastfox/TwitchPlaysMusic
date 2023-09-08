@@ -11,6 +11,8 @@ import json
 from midi_controller import send_midi_notes
 import mido
 import dotenv
+from midi_parser import MIDI_Parser
+from music_theory import MusicTheory
 
 ##########################
 # UTILS FUNCTIONS ########
@@ -46,6 +48,9 @@ def fetch_env_vars():
 ##########################
 class ChatClient:
     def __init__(self, master, server, port, nickname, token, channel):
+        self.midi_parser = MIDI_Parser()
+        self.music_theory = MusicTheory()
+
         self.current_notes = []  # Notes that are currently being played
         self.waiting_notes = []  # Notes that are waiting to be played
         self.master = master
@@ -58,6 +63,7 @@ class ChatClient:
         self.running = True
         self.notes_and_ports = read_json("./Music_informations/notes_and_ports.json")
         self.scales: dict = read_json("./Music_informations/scales_intervals.json")
+        self.scales_list = list(self.scales.keys())
 
         # GUI variables
         self.midi_port = tk.StringVar()
@@ -66,12 +72,12 @@ class ChatClient:
         self.scale = tk.StringVar()
         self.base_note = tk.StringVar()
         self.midi_ports_list = mido.get_output_names()
+
         if self.midi_ports_list:
             self.midi_port.set(self.midi_ports_list[-1])
         else:
             self.midi_port.set("No MIDI Ports Available")
 
-        self.scales_list = list(self.scales.keys())
         self.full_note_list = [
             "C",
             "C#",
@@ -187,8 +193,8 @@ class ChatClient:
         # end of GUI #
         ##############
 
-        self.scale.trace("w", self.allowed_note_list_option_changed)
-        self.base_note.trace("w", self.allowed_note_list_option_changed)
+        self.scale.trace("w", self.option_changed_on_scale_or_base_note)
+        self.base_note.trace("w", self.option_changed_on_scale_or_base_note)
 
         try:
             self.init_socket()
@@ -198,6 +204,12 @@ class ChatClient:
             self.text_area.insert(tk.END, f"Failed to connect to the server: {str(e)}")
 
         master.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def get_note_for_port_or_none(self, port):
+        # note is a letter with possiblly a # and is a key or notes_and_ports
+        for note, port_value in self.notes_and_ports.items():
+            if port_value == port:
+                return note
 
     def note_received(self, note):
         self.waiting_notes.append(note)
@@ -221,26 +233,6 @@ class ChatClient:
         self.sock.send(f"PASS {self.token}\r\n".encode("utf-8"))
         self.sock.send(f"NICK {self.nickname}\r\n".encode("utf-8"))
         self.sock.send(f"JOIN {self.channel}\r\n".encode("utf-8"))
-
-    def get_port_for_note_or_none(self, note):
-        if note is None:
-            return None
-        try:
-            if note.isdigit() and int(note) in self.notes_and_ports.values():
-                return int(note)
-            note: str = note.upper()
-            if len(note) == 1 or note[1] == "#":
-                note = f"{note}5"
-            return self.notes_and_ports.get(str(note), None)
-
-        except ValueError:
-            return None
-
-    def get_note_for_port_or_none(self, port):
-        # note is a letter with possiblly a # and is a key or notes_and_ports
-        for note, port_value in self.notes_and_ports.items():
-            if port_value == port:
-                return note
 
     def respond_to_ping(self):
         self.sock.send("PONG :tmi.twitch.tv\n".encode("utf-8"))
@@ -283,22 +275,8 @@ class ChatClient:
 
                 self.parse_and_play_midi(message)
 
-    def parse_message_parts(self, message_parts):
-        note_or_ports = message_parts[0]
-        note_or_port_list = note_or_ports.split(",")
-        length = float(message_parts[1]) if len(message_parts) > 1 else None
-        velocity = int(message_parts[2]) if len(message_parts) > 2 else None
-
-        return note_or_port_list, velocity, length
-
-    def filter_ports(self, note_or_port_list):
-        ports = [
-            self.get_port_for_note_or_none(note_or_port) if note_or_port != "X" else "X"
-            for note_or_port in note_or_port_list
-        ]
-        return [port for port in ports if port in self.ports_allowed or port == "X"]
-
     def send_midi_with_timeout(self, ports, velocity, length):
+        print("send_midi_with_timeout", ports, velocity, length)
         notes = []
         for port in ports:
             if port == "X":
@@ -328,51 +306,44 @@ class ChatClient:
         if not event.wait(timeout=5):
             print("Warning: MIDI sending timed out!")
 
+    ##############################
+    # Parsing MIDI message #######
+    ##############################
+
     def parse_and_play_midi(self, message: str):
         try:
-            message_list = message.split(" ")
-            # add all notes to waiting notes
+            print("parse_and_play_midi", message)
+            print(self.midi_parser)
+            self.midi_parser.print("pouet")
 
-            for message in message_list:
-                message_parts = message.split(":")
-                note_or_port_list, velocity, length = self.parse_message_parts(
-                    message_parts
-                )
-                ports = self.filter_ports(note_or_port_list)
-
-                notes = []
-                for port in ports:
-                    if port == "X":
-                        notes.append("X")
-                    else:
-                        notes.append(self.get_note_for_port_or_none(port))
-                self.note_received(notes)
-
-            beats = 0
-            for message in message_list:
-                message_parts = message.split(":")
-                note_or_port_list, velocity, length = self.parse_message_parts(
-                    message_parts
-                )
-                beats += length
-                if beats > self.max_beats.get() and self.max_beats.get() != -1:
-                    break
-                ports = self.filter_ports(note_or_port_list)
-
-                if ports == [None] or not ports:
-                    continue
-                self.send_midi_with_timeout(ports, velocity, length)
-                notes = []
-                print(f"ports: {ports}")
-                for port in ports:
-                    if port == "X":
-                        notes.append("X")
-                    else:
-                        notes.append(self.get_note_for_port_or_none(port))
-                self.note_stopped(notes)
-
+            midi_data, total_beats_played = self.midi_parser.parse_message(
+                message,
+                note_and_ports=self.notes_and_ports,
+                ports_allowed=self.ports_allowed,
+            )
+            print(midi_data, total_beats_played)
+            self.process_and_play(midi_data, total_beats_played)
         except ValueError as e:
             print(f"Error parsing MIDI message: {e}")
+
+    def process_and_play(self, midi_data, total_beats_played):
+        for ports, velocity, length in midi_data:
+            if not ports:
+                continue
+
+            self.send_midi_with_timeout(ports, velocity, length)
+
+            # Notify note start and stop
+            notes = [
+                self.get_note_for_port_or_none(port) if port != "X" else "X"
+                for port in ports
+            ]
+            self.note_received(notes)
+            self.note_stopped(notes)
+
+    ##############################
+    # END Parsing    #############
+    ##############################
 
     def send_message(self, msg):
         self.sock.send(f"PRIVMSG {self.channel} :{msg}\r\n".encode("utf-8"))
@@ -397,52 +368,65 @@ class ChatClient:
         for note in self.current_notes:
             self.current_notes_listbox.insert(tk.END, self.current_notes)
 
-    def allowed_note_list_option_changed(self, *args):
+    def handle_gui_changes(self):
         if len(self.scale.get()) > 0 and len(self.base_note.get()) > 0:
             self.note_list = self.get_notes_in_scale(
                 self.scale.get(), self.base_note.get()
             )
+
             self.note_listbox.delete(0, tk.END)
             for note in self.note_list:
                 self.note_listbox.insert(tk.END, note)
-
-            matching_ports = []
-            for note in self.note_list:
-                if "#" in note:
-                    matching_ports += [
-                        self.notes_and_ports[key]
-                        for key in self.notes_and_ports.keys()
-                        if note in key[:2]
-                    ]
-                else:
-                    matching_ports += [
-                        self.notes_and_ports[key]
-                        for key in self.notes_and_ports.keys()
-                        if note == key[0] and "#" not in key
-                    ]
-            self.ports_allowed = sorted(matching_ports)
-
         else:
             self.note_list = self.full_note_list
-            self.ports_allowed = self.notes_and_ports.values()
 
-    def get_notes_in_scale(self, scale, base_note):
-        base_index = self.full_note_list.index(base_note)
-        scale_intervals = self.scales[scale]
+    # def handle_ports_changes(self):
+    #     if len(self.scale.get()) > 0 and len(self.base_note.get()) > 0:
+    #         matching_ports = self.get_matching_ports_for_notes(self.note_list)
+    #         self.ports_allowed = sorted(matching_ports)
+    #     else:
+    #         self.ports_allowed = self.notes_and_ports.values()
 
-        notes_in_scale = []
-        for interval in scale_intervals:
-            base_index = (base_index + interval) % len(self.full_note_list)
-            notes_in_scale.append(self.full_note_list[base_index])
+    # def get_matching_ports_for_notes(self, notes):
+    #     matching_ports = []
+    #     for note in notes:
+    #         if "#" in note:
+    #             matching_ports += [
+    #                 self.notes_and_ports[key]
+    #                 for key in self.notes_and_ports.keys()
+    #                 if note in key[:2]
+    #             ]
+    #         else:
+    #             matching_ports += [
+    #                 self.notes_and_ports[key]
+    #                 for key in self.notes_and_ports.keys()
+    #                 if note == key[0] and "#" not in key
+    #             ]
+    #     return matching_ports
 
-        # Move the last element to the beginning
-        last_note = notes_in_scale.pop()
-        notes_in_scale.insert(0, last_note)
+    def option_changed_on_scale_or_base_note(self, *args):
+        self.handle_gui_changes()
+        self.ports_allowed = self.music_theory.handle_ports_changes(
+            self.scale, self.base_note, self.note_list
+        )
 
-        return notes_in_scale
+    # def get_notes_in_scale(self, scale, base_note):
+    #     base_index = self.full_note_list.index(base_note)
+    #     scale_intervals = self.scales[scale]
+
+    #     notes_in_scale = []
+    #     for interval in scale_intervals:
+    #         base_index = (base_index + interval) % len(self.full_note_list)
+    #         notes_in_scale.append(self.full_note_list[base_index])
+
+    #     # Move the last element to the beginning
+    #     last_note = notes_in_scale.pop()
+    #     notes_in_scale.insert(0, last_note)
+
+    #     return notes_in_scale
 
     def is_message_valid(self, message: str) -> bool:
-        pattern = r"^([A-Ga-g0-9#xX]+(,[A-Ga-g0-9#xX]+)*(:[0-9]+(\.[0-9]+)?)*(:[0-9]+)?( [A-Ga-g0-9#xX]+(,[A-Ga-g0-9#xX]+)*(:[0-9]+(\.[0-9]+)?)*(:[0-9]+)?)*)$"
+        pattern = r"^((\s*([A-Ga-g]\d(,\s*[A-Ga-g]\d)*|X)(:\d+(\.\d+)?(:\d+)?)?\s*)+)$"
 
         if not re.match(pattern, message):
             print("Invalid message format")

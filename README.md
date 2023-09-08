@@ -58,3 +58,11 @@ Click the config button to open the configuration window. You can configure the 
 - packaging==23.1
 - python-dotenv==1.0.0
 - python-rtmidi==1.5.5
+
+
+## Notation
+
+- C5:2:100 = C in the 5th octave, 2 beats, 100 velocity Defaults: 5th octave, 1 beat, 100 velocity
+- C5:2,E5:2,G5:2 = C, E, G in the 5th octave, 2 beats each played together
+- C5:2 E5:2 G5:2 = C, E, G in the 5th octave, 2 beats each played after each other
+- C5:2 X:2 G5:2 = C, G in the 5th octave, 2 beats each played after each other with a 2 beat pause in between
